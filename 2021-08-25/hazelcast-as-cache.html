@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  
+  
+  <title>Hazelcast as cache.</title>
+  <meta name="description" content="Хочу рассказать о своем опыте с in-memory database hazelcast. Както рас, пришлось столкнуться в одном проекте с данной базой, она использовалась как кэш некого контента записываемого на сервер, который через небольшой промежуток времени вычитывался соответсвенно для этого его нужно было подержать в кэше чтобы быстрее доставать данные. В качестве кэша использовалсь сущность Map данного хранилища с настроенным вытестнением в конфиге. Конфиг для версии hazelcast 4.2.1 &amp;lt;map name=&quot;default&quot;&amp;gt; &amp;lt;eviction eviction-policy=&quot;LRU&quot; max-size-policy=&quot;USED_HEAP_PERCENTAGE&quot; size=&quot;80&quot;/&amp;gt; &amp;lt;/map&amp;gt; Вродебы всё логично и ясно по достижению передела памяти 80% выделеного для jvm начинается освобождение Map. При дальнейшем исследовании, выяснилось что при попытки достичь предела памяти кэша с одним и тем же размером данных всё работает хорошо. Но если забить память до предела очень маленькими значениями - например 3 байта а потом начать писать туда большие объекты например 1 мегабайт, то почемуто вытеснение не срабатывает и hazelcast падает с ошибкой Exception: OutOfMemory. Вначале у меня была версия 3.8.6, первое что пришло в голову - нужно обновиться. Не поленясь немного поправил api для новой версии 4.2.1 запустил всё и опять провел эксперимент, каково же было мое разочарование когда hazelcast опять упал с OutOfMemory. Причиной такого поведения было то что алгоритм вытеснения(eviction) hazelcast по достижению предела памяти выбирает 15 записей из карты из них ищет самое позднее по доступу в соответствии с LRU или LFU и освобождает один объект и так до следущей записи. Что же получается по достижению предела памяти на операции записи, мы освобождаем 3 байта памяти на 1мб. В итоге забиваются оставшиеся 20% от 80% и hazelcast падает в OutOfMemory. Количество освобождаемых элементов за раз можно настроить hazelcast.map.eviction.batch.size и количество сэмплируемых тоже hazelcast.map.eviction.sample.count. Но это не решает проблему с кэшем разноразмерных данных. Я написал issue на github разработчикам на ломанном английском, и они потвердили мои догадки. ahmetmircik commented 16 days ago Right we remove 1 entry by default. More or less identical values in length is better fit. But the branch i referenced above tries to remove entries till there is available memory. It is something auto tuned version of hazelcast.map.eviction.batch.size. Did you have chance to try it? Хранилище работает хорошо только на данных одинакового размера с текщим алгоритмом вытеснения, но есть некая ветка правленная одним из разработчиков на github: oomeEviction которая реализует вытеснение пока память не освободиться для объекта. Если посмотреть там всего один коммит. public void evict(RecordStore recordStore, Data excludedKey) { assertRunningOnPartitionThread(); - for (int i = 0; i &amp;lt; batchSize; i++) { - EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey); - if (evictableEntry == null) { - return; + do { + for (int i = 0; i &amp;lt; batchSize; i++) { + EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey); + if (evictableEntry == null) { + return; + } + evictEntry(recordStore, evictableEntry); + } - evictEntry(recordStore, evictableEntry); - } + } while (recordStore.shouldEvict()); } Суть тут в том что while (recordStore.shouldEvict()) проверяет есть ли свободная память и повторяет цикл сэмплирование с вытеснение объекта до тех пор пока память не будет доступна. Вродебы проблема решена но я сделал другой тест, в heap 500МБ я оставил записываться данные по 3байта, это примерно 500.000.000/3=166.000.000 записей. На самом деле конечно же намного меньше т.к надо учитывать метаданные. В итоге hazelcast упал после 3.000.000 записей, т.к либо нехватило памяти для метаданных, либо garbage collector не успел отработать, кстате нужно быть уверененным что памяти jvm хватает и она не свопиться иначе вас жду очередные падаения. И я решил добавить ещё один фикс для ограничения максимального количества элементов равным 100000. diff -r ./hazelcast-4.2.1/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java ./hazelcast-4.2.1-modified/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java 90a91,95 &amp;gt; // limit objects in node &amp;gt; if ( recordStore.size() &amp;gt; toPerPartitionMaxSize(100000, mapName) ) { &amp;gt; return true; &amp;gt; } &amp;gt; Приведенные патчи это конечно решения костыли, т.к нарушают всю логику конфигурации, но добавить свою опцию в eviction для maxSizePolicy у меня вызвало затруднее т.к после добавления начинает ругаться hazelcast managment center что он не знает такого enum.">
+  
+
+  <link rel="stylesheet" href="/assets/main.css">
+  <link rel="canonical" href="/2021-08-25/hazelcast-as-cache">
+
+  <meta property="og:title" content="Hazelcast as cache.">
+  <meta property="og:site_name" content="nortel&#39;s notes">
+  <meta property="og:url" content="/2021-08-25/hazelcast-as-cache">
+  <meta property="og:description" content="Хочу рассказать о своем опыте с in-memory database hazelcast. Както рас, пришлось столкнуться в одном проекте с данной базой, она использовалась как кэш некого контента записываемого на сервер, который через небольшой промежуток времени вычитывался соответсвенно для этого его нужно было подержать в кэше чтобы быстрее доставать данные. В качестве кэша использовалсь сущность Map данного хранилища с настроенным вытестнением в конфиге. Конфиг для версии hazelcast 4.2.1 &amp;lt;map name=&quot;default&quot;&amp;gt; &amp;lt;eviction eviction-policy=&quot;LRU&quot; max-size-policy=&quot;USED_HEAP_PERCENTAGE&quot; size=&quot;80&quot;/&amp;gt; &amp;lt;/map&amp;gt; Вродебы всё логично и ясно по достижению передела памяти 80% выделеного для jvm начинается освобождение Map. При дальнейшем исследовании, выяснилось что при попытки достичь предела памяти кэша с одним и тем же размером данных всё работает хорошо. Но если забить память до предела очень маленькими значениями - например 3 байта а потом начать писать туда большие объекты например 1 мегабайт, то почемуто вытеснение не срабатывает и hazelcast падает с ошибкой Exception: OutOfMemory. Вначале у меня была версия 3.8.6, первое что пришло в голову - нужно обновиться. Не поленясь немного поправил api для новой версии 4.2.1 запустил всё и опять провел эксперимент, каково же было мое разочарование когда hazelcast опять упал с OutOfMemory. Причиной такого поведения было то что алгоритм вытеснения(eviction) hazelcast по достижению предела памяти выбирает 15 записей из карты из них ищет самое позднее по доступу в соответствии с LRU или LFU и освобождает один объект и так до следущей записи. Что же получается по достижению предела памяти на операции записи, мы освобождаем 3 байта памяти на 1мб. В итоге забиваются оставшиеся 20% от 80% и hazelcast падает в OutOfMemory. Количество освобождаемых элементов за раз можно настроить hazelcast.map.eviction.batch.size и количество сэмплируемых тоже hazelcast.map.eviction.sample.count. Но это не решает проблему с кэшем разноразмерных данных. Я написал issue на github разработчикам на ломанном английском, и они потвердили мои догадки. ahmetmircik commented 16 days ago Right we remove 1 entry by default. More or less identical values in length is better fit. But the branch i referenced above tries to remove entries till there is available memory. It is something auto tuned version of hazelcast.map.eviction.batch.size. Did you have chance to try it? Хранилище работает хорошо только на данных одинакового размера с текщим алгоритмом вытеснения, но есть некая ветка правленная одним из разработчиков на github: oomeEviction которая реализует вытеснение пока память не освободиться для объекта. Если посмотреть там всего один коммит. public void evict(RecordStore recordStore, Data excludedKey) { assertRunningOnPartitionThread(); - for (int i = 0; i &amp;lt; batchSize; i++) { - EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey); - if (evictableEntry == null) { - return; + do { + for (int i = 0; i &amp;lt; batchSize; i++) { + EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey); + if (evictableEntry == null) { + return; + } + evictEntry(recordStore, evictableEntry); + } - evictEntry(recordStore, evictableEntry); - } + } while (recordStore.shouldEvict()); } Суть тут в том что while (recordStore.shouldEvict()) проверяет есть ли свободная память и повторяет цикл сэмплирование с вытеснение объекта до тех пор пока память не будет доступна. Вродебы проблема решена но я сделал другой тест, в heap 500МБ я оставил записываться данные по 3байта, это примерно 500.000.000/3=166.000.000 записей. На самом деле конечно же намного меньше т.к надо учитывать метаданные. В итоге hazelcast упал после 3.000.000 записей, т.к либо нехватило памяти для метаданных, либо garbage collector не успел отработать, кстате нужно быть уверененным что памяти jvm хватает и она не свопиться иначе вас жду очередные падаения. И я решил добавить ещё один фикс для ограничения максимального количества элементов равным 100000. diff -r ./hazelcast-4.2.1/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java ./hazelcast-4.2.1-modified/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java 90a91,95 &amp;gt; // limit objects in node &amp;gt; if ( recordStore.size() &amp;gt; toPerPartitionMaxSize(100000, mapName) ) { &amp;gt; return true; &amp;gt; } &amp;gt; Приведенные патчи это конечно решения костыли, т.к нарушают всю логику конфигурации, но добавить свою опцию в eviction для maxSizePolicy у меня вызвало затруднее т.к после добавления начинает ругаться hazelcast managment center что он не знает такого enum.">
+
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet">
+
+  
+
+</head>
+
+
+  <body>
+
+    <header class="site-header">
+
+  <div class="wrapper">
+
+    <a class="site-title" href="/">nortel&#39;s notes</a>
+
+    <nav class="site-nav">
+        <a class="page-link" href="/about/">About</a>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title" itemprop="name headline">Hazelcast as cache.</h1>
+    <p class="post-meta"><time datetime="2021-08-25T09:16:22+00:00" itemprop="datePublished">Aug 25, 2021</time>
+
+ •
+  
+    
+    
+      
+        <a href="/tags/hazelcast/">hazelcast</a>
+      
+    
+  
+
+</p>
+  </header>
+
+  <div class="post-content" itemprop="articleBody">
+    <p>Хочу рассказать о своем опыте с in-memory database hazelcast. Както рас, пришлось столкнуться в одном проекте с данной базой, она использовалась как кэш некого контента записываемого на сервер, который
+через небольшой промежуток времени вычитывался соответсвенно для этого его нужно было подержать в кэше чтобы быстрее доставать данные. 
+В качестве кэша использовалсь сущность Map данного хранилища с настроенным вытестнением в конфиге. 
+Конфиг для версии hazelcast 4.2.1</p>
+
+<figure class="highlight"><pre><code class="language-xml" data-lang="xml"><span class="nt">&lt;map</span> <span class="na">name=</span><span class="s">"default"</span><span class="nt">&gt;</span>
+        <span class="nt">&lt;eviction</span> <span class="na">eviction-policy=</span><span class="s">"LRU"</span> <span class="na">max-size-policy=</span><span class="s">"USED_HEAP_PERCENTAGE"</span> <span class="na">size=</span><span class="s">"80"</span><span class="nt">/&gt;</span>
+<span class="nt">&lt;/map&gt;</span></code></pre></figure>
+
+<p>Вродебы всё логично и ясно по достижению передела памяти 80% выделеного для jvm начинается освобождение Map.
+При дальнейшем исследовании, выяснилось что при попытки достичь предела памяти кэша с одним и тем же размером данных всё работает хорошо. Но
+если забить память до предела очень маленькими значениями - например 3 байта а потом начать писать туда большие объекты например 1 мегабайт,
+то почемуто вытеснение не срабатывает и hazelcast падает с ошибкой Exception: OutOfMemory.</p>
+
+<p>Вначале у меня была версия 3.8.6, первое что пришло в голову - нужно обновиться. Не поленясь немного поправил api для новой версии 4.2.1
+запустил всё и опять провел эксперимент, каково же было мое разочарование когда hazelcast опять упал с OutOfMemory.</p>
+
+<p>Причиной такого поведения было то что алгоритм вытеснения(eviction) hazelcast по достижению предела памяти выбирает 15 записей из карты из них 
+ищет самое позднее по доступу в соответствии с LRU или LFU и освобождает один объект и так до следущей записи. Что же получается по достижению 
+предела памяти на операции записи, мы освобождаем 3 байта памяти на 1мб. В итоге забиваются оставшиеся 20% от 80% и hazelcast падает в OutOfMemory.
+Количество освобождаемых элементов за раз можно настроить hazelcast.map.eviction.batch.size и количество сэмплируемых тоже hazelcast.map.eviction.sample.count.
+Но это не решает проблему с кэшем разноразмерных данных. Я написал issue на github разработчикам на ломанном английском, и они потвердили мои догадки.</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ahmetmircik commented 16 days ago
+Right we remove 1 entry by default. More or less identical values in length is better fit. But the branch i referenced above tries to remove entries till there is available memory. It is something auto tuned version of hazelcast.map.eviction.batch.size. Did you have chance to try it?
+</code></pre></div></div>
+<p>Хранилище работает хорошо только на данных одинакового размера с текщим алгоритмом вытеснения, но есть некая ветка правленная одним из разработчиков на github: <a href="https://github.com/ahmetmircik/hazelcast/tree/oomeEviction">oomeEviction</a> которая реализует
+ вытеснение пока память не освободиться для объекта. Если посмотреть там всего один коммит.</p>
+
+<figure class="highlight"><pre><code class="language-cpp" data-lang="cpp">    <span class="k">public</span> <span class="kt">void</span> <span class="nf">evict</span><span class="p">(</span><span class="n">RecordStore</span> <span class="n">recordStore</span><span class="p">,</span> <span class="n">Data</span> <span class="n">excludedKey</span><span class="p">)</span> <span class="p">{</span>
+        <span class="n">assertRunningOnPartitionThread</span><span class="p">();</span>
+
+ <span class="o">-</span>      <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">batchSize</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+ <span class="o">-</span>          <span class="n">EntryView</span> <span class="n">evictableEntry</span> <span class="o">=</span> <span class="n">selectEvictableEntry</span><span class="p">(</span><span class="n">recordStore</span><span class="p">,</span> <span class="n">excludedKey</span><span class="p">);</span>
+ <span class="o">-</span>          <span class="k">if</span> <span class="p">(</span><span class="n">evictableEntry</span> <span class="o">==</span> <span class="n">null</span><span class="p">)</span> <span class="p">{</span>
+ <span class="o">-</span>              <span class="k">return</span><span class="p">;</span>
+ <span class="o">+</span>       <span class="k">do</span> <span class="p">{</span>
+ <span class="o">+</span>          <span class="k">for</span> <span class="p">(</span><span class="kt">int</span> <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="n">batchSize</span><span class="p">;</span> <span class="n">i</span><span class="o">++</span><span class="p">)</span> <span class="p">{</span>
+ <span class="o">+</span>              <span class="n">EntryView</span> <span class="n">evictableEntry</span> <span class="o">=</span> <span class="n">selectEvictableEntry</span><span class="p">(</span><span class="n">recordStore</span><span class="p">,</span> <span class="n">excludedKey</span><span class="p">);</span>
+ <span class="o">+</span>              <span class="k">if</span> <span class="p">(</span><span class="n">evictableEntry</span> <span class="o">==</span> <span class="n">null</span><span class="p">)</span> <span class="p">{</span>
+ <span class="o">+</span>                  <span class="k">return</span><span class="p">;</span>
+ <span class="o">+</span>              <span class="p">}</span>
+ <span class="o">+</span>              <span class="n">evictEntry</span><span class="p">(</span><span class="n">recordStore</span><span class="p">,</span> <span class="n">evictableEntry</span><span class="p">);</span>
+ <span class="o">+</span>          <span class="p">}</span>
+ <span class="o">-</span>          <span class="n">evictEntry</span><span class="p">(</span><span class="n">recordStore</span><span class="p">,</span> <span class="n">evictableEntry</span><span class="p">);</span>
+ <span class="o">-</span>      <span class="p">}</span>
+ <span class="o">+</span>      <span class="p">}</span> <span class="k">while</span> <span class="p">(</span><span class="n">recordStore</span><span class="p">.</span><span class="n">shouldEvict</span><span class="p">());</span>
+
+    <span class="p">}</span></code></pre></figure>
+
+<p>Суть тут в том что while (recordStore.shouldEvict()) проверяет есть ли свободная память и повторяет цикл сэмплирование с вытеснение объекта до тех пор пока память не будет доступна.
+Вродебы проблема решена но я сделал другой тест, в heap 500МБ я оставил записываться данные по 3байта, это примерно 500.000.000/3=166.000.000 записей. На самом деле конечно же намного меньше 
+т.к надо учитывать метаданные. В итоге hazelcast упал после 3.000.000 записей, т.к либо нехватило памяти для метаданных, либо garbage collector не успел отработать, кстате нужно быть уверененным
+что памяти jvm хватает и она не свопиться иначе вас жду очередные падаения.
+И я решил добавить ещё один фикс для ограничения максимального количества элементов равным 100000.</p>
+
+<figure class="highlight"><pre><code class="language-text" data-lang="text">diff -r ./hazelcast-4.2.1/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java ./hazelcast-4.2.1-modified/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java
+90a91,95
+&gt;       // limit objects in node
+&gt;       if ( recordStore.size() &gt; toPerPartitionMaxSize(100000, mapName) ) {
+&gt;               return true;
+&gt;       }
+&gt;</code></pre></figure>
+
+<p>Приведенные патчи это конечно решения костыли, т.к нарушают всю логику конфигурации, но добавить свою опцию в eviction для maxSizePolicy у меня вызвало затруднее т.к после добавления начинает ругаться 
+hazelcast managment center что он не знает такого enum.</p>
+
+
+  </div>
+
+</article>
+
+      </div>
+    </main>
+
+    <footer class="site-footer">
+
+  <div class="wrapper">
+
+    <p>
+      &copy; nortel - Powered by <a href="https://jekyllrb.com">Jekyll</a> &amp; Modded <a href="https://github.com/yous/whiteglass">whiteglass</a>
+
+    </p>
+
+  </div>
+
+</footer>
+
+
+  </body>
+
+</html>
