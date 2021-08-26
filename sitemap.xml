@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9 http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd" xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 <url>
-<loc>/2021-08-25/hazelcast-as-cache</loc>
+<loc>https://n0rt3l.github.io/2021-08-25/hazelcast-as-cache</loc>
 <lastmod>2021-08-25T09:16:22+00:00</lastmod>
 </url>
 <url>
-<loc>/about/</loc>
+<loc>https://n0rt3l.github.io/about/</loc>
 </url>
 <url>
-<loc>/</loc>
+<loc>https://n0rt3l.github.io/</loc>
 </url>
 <url>
-<loc>/tags/</loc>
+<loc>https://n0rt3l.github.io/tags/</loc>
 </url>
 <url>
-<loc>/tags/hazelcast/</loc>
+<loc>https://n0rt3l.github.io/tags/hazelcast/</loc>
 </url>
 </urlset>
