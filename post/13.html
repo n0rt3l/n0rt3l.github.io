@@ -1,0 +1,102 @@
+<!DOCTYPE html><html><head><meta charSet="utf-8"/><meta name="viewport" content="width=device-width"/><meta name="next-head-count" content="2"/><link rel="preload" href="/_next/static/css/824411f119c37500.css" as="style"/><link rel="stylesheet" href="/_next/static/css/824411f119c37500.css" data-n-g=""/><link rel="preload" href="/_next/static/css/c2a527101433f11d.css" as="style"/><link rel="stylesheet" href="/_next/static/css/c2a527101433f11d.css" data-n-p=""/><noscript data-n-css=""></noscript><script defer="" nomodule="" src="/_next/static/chunks/polyfills-0d1b80a048d4787e.js"></script><script src="/_next/static/chunks/webpack-69bfa6990bb9e155.js" defer=""></script><script src="/_next/static/chunks/framework-e70c6273bfe3f237.js" defer=""></script><script src="/_next/static/chunks/main-959cc2ac3c742fb4.js" defer=""></script><script src="/_next/static/chunks/pages/_app-5d88c0afa28706d9.js" defer=""></script><script src="/_next/static/chunks/180-96a3a58c44671c99.js" defer=""></script><script src="/_next/static/chunks/pages/post/%5Bid%5D-a3c05d7175dfdb37.js" defer=""></script><script src="/_next/static/kB5yR2dGavR9M_lc_Rou0/_buildManifest.js" defer=""></script><script src="/_next/static/kB5yR2dGavR9M_lc_Rou0/_ssgManifest.js" defer=""></script></head><body><div id="__next" data-reactroot=""><div></div><div style="margin:0 auto;width:800px"><div><br/><h2>Hazelcast cache eviction algorithm. Community vs enterprice.</h2><br/><div>
+<p>В данной статье хочу поделиться своим опытом работы с in-memory database hazelcast. Была задача, нужно было разобраться с кэшированием разноразмерных данных в hazelcast. В hazelcast есть много распределенных сущностей с которыми вы можете работать это queue, set, multimap и т.д. В ПО с которым я имел дело использовалсь сущность Map с настроенным вытеснением в конфиге.</p>
+
+
+
+<p>Конфиг для версии hazelcast 4.2.1</p>
+
+
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: xml; title: ; notranslate" title="">
+&lt;map name=&quot;default&quot;&gt;
+        &lt;eviction eviction-policy=&quot;LRU&quot; max-size-policy=&quot;USED_HEAP_PERCENTAGE&quot; size=&quot;80&quot;/&gt;
+&lt;/map&gt;
+</pre></div>
+
+
+<p>Всё просто и ясно по достижению передела памяти 80% выделеного для jvm начинается освобождение данных Map. При дальнейшем исследовании, выяснилось что при попытки достичь предела памяти кэша с одним и тем же размером данных всё отлично. Но если вы заполните память до предела очень маленькими значениями &#8211; например 3 байта а потом начнете писать туда большие объекты например размером 1 мегабайт, то вытеснение не срабатывает и hazelcast падает с ошибкой Exception: OutOfMemory.</p>
+
+
+
+<p>ПРЕДИСТОРИЯ: Вначале у моего ПО была версия 3.8.6, первое что пришло в голову &#8211; нужно обновиться. Не поленясь немного поправил api для новой версии 4.2.1 запустил всё и опять провел эксперимент, каково же было мое удивление когда hazelcast опять упал с OutOfMemory.</p>
+
+
+
+<p>Причиной такого поведения было то что алгоритм вытеснения(eviction) hazelcast по достижению предела памяти выбирает 15 записей из карты (sampling) из них ищет самое позднее по доступу в соответствии с LRU или LFU и освобождает один объект и так до следущей записи. Что же получается по достижению предела памяти на операции записи, мы освобождаем 3 байта памяти на каждый записываемый 1МБ. Нетрудно догодаться что запись в память дальше выходит за пределы лимита 80% который мы выставили и упирается в потолок heap, что приводит hazelcast к exception OutOfMemory.</p>
+
+
+
+<p>Количество освобождаемых элементов за раз можно настроить hazelcast.map.eviction.batch.size и количество сэмплируемых тоже hazelcast.map.eviction.sample.count. Но это не решает проблему с кэшем разноразмерных данных. Я написал issue на github разработчикам на ломанном английском, и они потвердили мои догадки.</p>
+
+
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: plain; title: ; notranslate" title="">
+ahmetmircik commented 16 days ago
+Right we remove 1 entry by default. More or less identical values in length is better fit. But the branch i referenced above tries to remove entries till there is available memory. It is something auto tuned version of hazelcast.map.eviction.batch.size. Did you have chance to try it?
+
+</pre></div>
+
+
+<p>РАЗРЕШЕНИЕ: Оказывается дело было в том что в open source community версии hazelcast используется приведенный алгоритм вытеснения, который подходит только для одно размерных данных, а в enterprise версии используется более усовершенствованный алгоритм “Forced Eviction” c типом памяти NATIVE который доступен только в enterprise версии. И всё это лишь маркетинговая стратегия.</p>
+
+
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: plain; title: ; notranslate" title="">
+Hazelcast IMDG Enterprise
+
+Hazelcast may use forced eviction in the cases when the eviction explained in Understanding Map Eviction is not enough to free up your memory. Note that this is valid if you are using Hazelcast IMDG Enterprise and you set your in-memory format to NATIVE.
+The forced eviction mechanism is explained below as steps in the given order:
+When the normal eviction is not enough, forced eviction is triggered and first it tries to evict approx. 20% of the entries from the current partition. It retries this five times.
+If the result of above step is still not enough, forced eviction applies the above step to all maps. This time it might perform eviction from some other partitions too, provided that they are owned by the same thread.
+If that is still not enough to free up your memory, it evicts not the 20% but all the entries from the current partition.
+If that is not enough, it will evict all the entries from the other data structures; from the partitions owned by the local thread.
+Finally, when all the above steps are not enough, Hazelcast throws a native OutOfMemoryException.
+When you have an evictable cache/map, you should safely put entries to it without facing with any memory shortages. Forced eviction helps to achieve this. Regular eviction removes one entry at a time while forced eviction can remove multiple entries, which can even be owned by another caches/maps.
+
+</pre></div>
+
+
+<p>Но также разработчики предложили некую ветка с патчем github:&nbsp;<a href="https://github.com/ahmetmircik/hazelcast/tree/oomeEviction">oomeEviction</a>&nbsp;которая реализует вытеснение пока память не освободиться для объекта. Если посмотреть там всего один коммит.</p>
+
+
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: java; title: ; notranslate" title="">
+    public void evict(RecordStore recordStore, Data excludedKey) {
+        assertRunningOnPartitionThread();
+
+ -      for (int i = 0; i &lt; batchSize; i++) {
+ -          EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey);
+ -          if (evictableEntry == null) {
+ -              return;
+ +       do {
+ +          for (int i = 0; i &lt; batchSize; i++) {
+ +              EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey);
+ +              if (evictableEntry == null) {
+ +                  return;
+ +              }
+ +              evictEntry(recordStore, evictableEntry);
+ +          }
+ -          evictEntry(recordStore, evictableEntry);
+ -      }
+ +      } while (recordStore.shouldEvict());
+
+    }
+</pre></div>
+
+
+<p>Суть тут в том что while (recordStore.shouldEvict()) проверяет есть ли свободная память и повторяет цикл сэмплирование с вытеснение объекта до тех пор пока память не будет доступна. Вродебы проблема решена но я сделал другой тест, в heap 500МБ я оставил записываться данные по 3байта, это примерно 500.000.000/3=166.000.000 записей. На самом деле конечно же намного меньше т.к надо учитывать метаданные.</p>
+
+
+
+<p>В итоге hazelcast упал после 3.000.000 записей, т.к либо нехватило памяти для метаданных, либо garbage collector не успел отработать, кстате нужно быть уверененным что памяти jvm хватает и она не свопиться иначе вас жду очередные падения. И я решил добавить ещё один фикс для ограничения максимального количества элементов равным 100000.</p>
+
+
+<div class="wp-block-syntaxhighlighter-code "><pre class="brush: java; title: ; notranslate" title="">
+diff -r ./hazelcast-4.2.1/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java ./hazelcast-4.2.1-modified/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java
+90a91,95
+&gt;       // limit objects in node
+&gt;       if ( recordStore.size() &gt; toPerPartitionMaxSize(100000, mapName) ) {
+&gt;               return true;
+&gt;       }
+&gt;
+</pre></div>
+
+
+<p>Приведенные патчи это конечно решения костыли, т.к нарушают всю логику конфигурации, но добавить свою опцию в eviction для maxSizePolicy у меня вызвало затруднее т.к после добавления начинает ругаться hazelcast managment center что он не знает такого enum.</p>
+</div></div></div><br/><br/></div><script id="__NEXT_DATA__" type="application/json">{"props":{"pageProps":{"post":{"ID":13,"site_ID":29572893,"author":{"ID":29155027,"login":"n0rtel","email":false,"name":"nortel","first_name":"Alexander","last_name":"Alexander","nice_name":"n0rtel","URL":"http://n0rtel.wordpress.com","avatar_URL":"https://1.gravatar.com/avatar/1e392ed2a68a08c0ecc851ba487ade72?s=96\u0026d=identicon\u0026r=G","profile_URL":"https://en.gravatar.com/n0rtel","site_ID":29572893},"date":"2022-06-14T05:54:47+00:00","modified":"2022-06-17T09:17:41+00:00","title":"Hazelcast cache eviction algorithm. Community vs enterprice.","URL":"https://n0rtel.wordpress.com/2022/06/14/%d1%82%d0%b5%d1%81%d1%82%d0%be%d0%b2%d0%b0%d1%8f-%d1%81%d1%82%d0%b0%d1%82%d1%8c%d1%8f/","short_URL":"https://wp.me/p205g9-d","content":"\n\u003cp\u003eВ данной статье хочу поделиться своим опытом работы с in-memory database hazelcast. Была задача, нужно было разобраться с кэшированием разноразмерных данных в hazelcast. В hazelcast есть много распределенных сущностей с которыми вы можете работать это queue, set, multimap и т.д. В ПО с которым я имел дело использовалсь сущность Map с настроенным вытеснением в конфиге.\u003c/p\u003e\n\n\n\n\u003cp\u003eКонфиг для версии hazelcast 4.2.1\u003c/p\u003e\n\n\n\u003cdiv class=\"wp-block-syntaxhighlighter-code \"\u003e\u003cpre class=\"brush: xml; title: ; notranslate\" title=\"\"\u003e\n\u0026lt;map name=\u0026quot;default\u0026quot;\u0026gt;\n        \u0026lt;eviction eviction-policy=\u0026quot;LRU\u0026quot; max-size-policy=\u0026quot;USED_HEAP_PERCENTAGE\u0026quot; size=\u0026quot;80\u0026quot;/\u0026gt;\n\u0026lt;/map\u0026gt;\n\u003c/pre\u003e\u003c/div\u003e\n\n\n\u003cp\u003eВсё просто и ясно по достижению передела памяти 80% выделеного для jvm начинается освобождение данных Map. При дальнейшем исследовании, выяснилось что при попытки достичь предела памяти кэша с одним и тем же размером данных всё отлично. Но если вы заполните память до предела очень маленькими значениями \u0026#8211; например 3 байта а потом начнете писать туда большие объекты например размером 1 мегабайт, то вытеснение не срабатывает и hazelcast падает с ошибкой Exception: OutOfMemory.\u003c/p\u003e\n\n\n\n\u003cp\u003eПРЕДИСТОРИЯ: Вначале у моего ПО была версия 3.8.6, первое что пришло в голову \u0026#8211; нужно обновиться. Не поленясь немного поправил api для новой версии 4.2.1 запустил всё и опять провел эксперимент, каково же было мое удивление когда hazelcast опять упал с OutOfMemory.\u003c/p\u003e\n\n\n\n\u003cp\u003eПричиной такого поведения было то что алгоритм вытеснения(eviction) hazelcast по достижению предела памяти выбирает 15 записей из карты (sampling) из них ищет самое позднее по доступу в соответствии с LRU или LFU и освобождает один объект и так до следущей записи. Что же получается по достижению предела памяти на операции записи, мы освобождаем 3 байта памяти на каждый записываемый 1МБ. Нетрудно догодаться что запись в память дальше выходит за пределы лимита 80% который мы выставили и упирается в потолок heap, что приводит hazelcast к exception OutOfMemory.\u003c/p\u003e\n\n\n\n\u003cp\u003eКоличество освобождаемых элементов за раз можно настроить hazelcast.map.eviction.batch.size и количество сэмплируемых тоже hazelcast.map.eviction.sample.count. Но это не решает проблему с кэшем разноразмерных данных. Я написал issue на github разработчикам на ломанном английском, и они потвердили мои догадки.\u003c/p\u003e\n\n\n\u003cdiv class=\"wp-block-syntaxhighlighter-code \"\u003e\u003cpre class=\"brush: plain; title: ; notranslate\" title=\"\"\u003e\nahmetmircik commented 16 days ago\nRight we remove 1 entry by default. More or less identical values in length is better fit. But the branch i referenced above tries to remove entries till there is available memory. It is something auto tuned version of hazelcast.map.eviction.batch.size. Did you have chance to try it?\n\n\u003c/pre\u003e\u003c/div\u003e\n\n\n\u003cp\u003eРАЗРЕШЕНИЕ: Оказывается дело было в том что в open source community версии hazelcast используется приведенный алгоритм вытеснения, который подходит только для одно размерных данных, а в enterprise версии используется более усовершенствованный алгоритм “Forced Eviction” c типом памяти NATIVE который доступен только в enterprise версии. И всё это лишь маркетинговая стратегия.\u003c/p\u003e\n\n\n\u003cdiv class=\"wp-block-syntaxhighlighter-code \"\u003e\u003cpre class=\"brush: plain; title: ; notranslate\" title=\"\"\u003e\nHazelcast IMDG Enterprise\n\nHazelcast may use forced eviction in the cases when the eviction explained in Understanding Map Eviction is not enough to free up your memory. Note that this is valid if you are using Hazelcast IMDG Enterprise and you set your in-memory format to NATIVE.\nThe forced eviction mechanism is explained below as steps in the given order:\nWhen the normal eviction is not enough, forced eviction is triggered and first it tries to evict approx. 20% of the entries from the current partition. It retries this five times.\nIf the result of above step is still not enough, forced eviction applies the above step to all maps. This time it might perform eviction from some other partitions too, provided that they are owned by the same thread.\nIf that is still not enough to free up your memory, it evicts not the 20% but all the entries from the current partition.\nIf that is not enough, it will evict all the entries from the other data structures; from the partitions owned by the local thread.\nFinally, when all the above steps are not enough, Hazelcast throws a native OutOfMemoryException.\nWhen you have an evictable cache/map, you should safely put entries to it without facing with any memory shortages. Forced eviction helps to achieve this. Regular eviction removes one entry at a time while forced eviction can remove multiple entries, which can even be owned by another caches/maps.\n\n\u003c/pre\u003e\u003c/div\u003e\n\n\n\u003cp\u003eНо также разработчики предложили некую ветка с патчем github:\u0026nbsp;\u003ca href=\"https://github.com/ahmetmircik/hazelcast/tree/oomeEviction\"\u003eoomeEviction\u003c/a\u003e\u0026nbsp;которая реализует вытеснение пока память не освободиться для объекта. Если посмотреть там всего один коммит.\u003c/p\u003e\n\n\n\u003cdiv class=\"wp-block-syntaxhighlighter-code \"\u003e\u003cpre class=\"brush: java; title: ; notranslate\" title=\"\"\u003e\n    public void evict(RecordStore recordStore, Data excludedKey) {\n        assertRunningOnPartitionThread();\n\n -      for (int i = 0; i \u0026lt; batchSize; i++) {\n -          EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey);\n -          if (evictableEntry == null) {\n -              return;\n +       do {\n +          for (int i = 0; i \u0026lt; batchSize; i++) {\n +              EntryView evictableEntry = selectEvictableEntry(recordStore, excludedKey);\n +              if (evictableEntry == null) {\n +                  return;\n +              }\n +              evictEntry(recordStore, evictableEntry);\n +          }\n -          evictEntry(recordStore, evictableEntry);\n -      }\n +      } while (recordStore.shouldEvict());\n\n    }\n\u003c/pre\u003e\u003c/div\u003e\n\n\n\u003cp\u003eСуть тут в том что while (recordStore.shouldEvict()) проверяет есть ли свободная память и повторяет цикл сэмплирование с вытеснение объекта до тех пор пока память не будет доступна. Вродебы проблема решена но я сделал другой тест, в heap 500МБ я оставил записываться данные по 3байта, это примерно 500.000.000/3=166.000.000 записей. На самом деле конечно же намного меньше т.к надо учитывать метаданные.\u003c/p\u003e\n\n\n\n\u003cp\u003eВ итоге hazelcast упал после 3.000.000 записей, т.к либо нехватило памяти для метаданных, либо garbage collector не успел отработать, кстате нужно быть уверененным что памяти jvm хватает и она не свопиться иначе вас жду очередные падения. И я решил добавить ещё один фикс для ограничения максимального количества элементов равным 100000.\u003c/p\u003e\n\n\n\u003cdiv class=\"wp-block-syntaxhighlighter-code \"\u003e\u003cpre class=\"brush: java; title: ; notranslate\" title=\"\"\u003e\ndiff -r ./hazelcast-4.2.1/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java ./hazelcast-4.2.1-modified/hazelcast/src/main/java/com/hazelcast/map/impl/eviction/EvictionChecker.java\n90a91,95\n\u0026gt;       // limit objects in node\n\u0026gt;       if ( recordStore.size() \u0026gt; toPerPartitionMaxSize(100000, mapName) ) {\n\u0026gt;               return true;\n\u0026gt;       }\n\u0026gt;\n\u003c/pre\u003e\u003c/div\u003e\n\n\n\u003cp\u003eПриведенные патчи это конечно решения костыли, т.к нарушают всю логику конфигурации, но добавить свою опцию в eviction для maxSizePolicy у меня вызвало затруднее т.к после добавления начинает ругаться hazelcast managment center что он не знает такого enum.\u003c/p\u003e\n","excerpt":"\u003cp\u003eВ данной статье хочу поделиться своим опытом работы с in-memory database hazelcast. Была задача, нужно было разобраться с кэшированием разноразмерных данных в hazelcast. В hazelcast есть много распределенных сущностей с которыми вы можете работать это queue, set, multimap и т.д. В ПО с которым я имел дело использовалсь сущность Map с настроенным вытеснением в конфиге. [\u0026hellip;]\u003c/p\u003e\n","slug":"%d1%82%d0%b5%d1%81%d1%82%d0%be%d0%b2%d0%b0%d1%8f-%d1%81%d1%82%d0%b0%d1%82%d1%8c%d1%8f","guid":"https://n0rtel.wordpress.com/?p=13","status":"publish","sticky":false,"password":"","parent":false,"type":"post","discussion":{"comments_open":true,"comment_status":"open","pings_open":true,"ping_status":"open","comment_count":0},"likes_enabled":true,"sharing_enabled":true,"like_count":0,"i_like":false,"is_reblogged":false,"is_following":false,"global_ID":"b7b6a7a7a491016e3ca1a78a5ac1c76a","featured_image":"","post_thumbnail":null,"format":"standard","geo":false,"menu_order":0,"page_template":"","publicize_URLs":[],"terms":{"category":{"Uncategorized":{"ID":1,"name":"Uncategorized","slug":"uncategorized","description":"","post_count":3,"parent":0,"meta":{"links":{"self":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/categories/slug:uncategorized","help":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/categories/slug:uncategorized/help","site":"https://public-api.wordpress.com/rest/v1.1/sites/29572893"}}}},"post_tag":{},"post_format":{},"mentions":{}},"tags":{},"categories":{"Uncategorized":{"ID":1,"name":"Uncategorized","slug":"uncategorized","description":"","post_count":3,"parent":0,"meta":{"links":{"self":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/categories/slug:uncategorized","help":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/categories/slug:uncategorized/help","site":"https://public-api.wordpress.com/rest/v1.1/sites/29572893"}}}},"attachments":{},"attachment_count":0,"metadata":[],"meta":{"links":{"self":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/posts/13","help":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/posts/13/help","site":"https://public-api.wordpress.com/rest/v1.1/sites/29572893","replies":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/posts/13/replies/","likes":"https://public-api.wordpress.com/rest/v1.1/sites/29572893/posts/13/likes/"}},"capabilities":{"publish_post":false,"delete_post":false,"edit_post":false},"other_URLs":{}}},"__N_SSG":true},"page":"/post/[id]","query":{"id":"13"},"buildId":"kB5yR2dGavR9M_lc_Rou0","isFallback":false,"gsp":true,"scriptLoader":[]}</script></body></html>
