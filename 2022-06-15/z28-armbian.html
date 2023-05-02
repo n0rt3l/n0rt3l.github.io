@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="yandex-verification" content="e062075972e46c0b" />
+  
+  
+  
+  
+  <title>Установка linux на Z28 tv box rock64.</title>
+  <meta name="description" content="Хочу рассказать о своем увлекательном опыте установки linux на приставку z28 tv box ott, которая оснащена soc чипом Rock64 RK3328. Некоторую информацию, я подчерпнул на 4pda.ru: 4pda.to-device 4pda.to-ubuntu Цитирую 4pda: Нам понадобится: — Любая прошивка для Z28 (стоковая или кастомная) — Micro SD флешка на 8 гигов (и более) — Программа Etcher (https://etcher.io/) — USBA-USBA кабель — Программа AndroidTool из этого поста (не каждая версия корректно срабатывает, поэтому лучше брать 2.39 отсюда — я делал на ней) — Программа Driver Assistant из этого поста Процесс запуска с SD флеш: Ставим драйвера с помощью Driver Assistant. Качаем образ LINUX отсюда — https://github.com/ayu…4/linux-build/releases (я взял xenial-mate-rock64-0.4.0-63-arm64.img.xz — это образ Ubuntu с графическим рабочим столом и прочим полезным барахлом, конкретно на этом образе и ветке 0.4 работает WiFi и все остальное (на оригинальной Z28, на остальных возможно не будет WiFi и\или ethernet, надо проверять), версии ветки 0.5 умеют загружаться только с внутреннеей памяти, на флешку записывать их смысла нет, подробнее — по ссылке в конце статьи.) Распаковываем (нужно получить файл .img) и записываем его с помощью кардридера и программы Etcher на sd-флешку Если хотите сохранить текущую прошивку, то читайте пост про то, как сделать бекап (ссылка есть у меня в подписи) Теперь нам надо стереть память устройства для того, чтобы оно начало грузиться с SD флешки. Для этого запускаем AndroidTool, обесточиваем устройство, зажимаем кнопку сброса (сзади коробочки отверстие, в нем кнопка. это и есть кнопка сброса), не отпуская кнопки подключаем коробочку к компьютеру кабелем USBA-USBA через OTG разъем. Затем отпускаем кнопку сброса. В программе AndroidTool устройство должно определиться. Теперь переходим на вкладку «UpgradeFirmware», там жмем «Firmware», выбираем прошивку (подойдет любая для Z28), и после этого жмем «EraseFlash». Всё, теперь флешка внутри устройства чиста и грузиться устройство будет пытаться с SD флешки. Обесточиваем коробочку, вставляем подготовленную SD флешку, подключаем монитор, клавиатуру, мышь и подключаем питание. Смотрим на монитор — должна начаться загрузка.(rock64 — логин rock64 — пароль) Процесс установки на внутреннюю память: Понадобится еще одна флешка, но уже USB, для хранения образа системы перед записью на внутренний накопитель и USB разветвитель, чтобы подключить мышь, клавиатуру и USB флешку одновременно Выполняем предыдущий пункт для того, чтобы получить работающую систему с SD флешки. Загружаемся с SD флешки, включаем терминал, переходим в режим работы от суперпользователя (команда sudo su, затем вводим пароль rock64) Копируем образ системы (который ранее вы записывали на SD флешку) на USB флешку (img файл), вставляем эту USB флешку в нашу коробочку. С помощью команды ls /media/rock64/ убеждаемся, что флешка подмонтировалась Запускаем команду dd if= of=/dev/mmcblk0 bs=2048 status=progress (в моем случае команда получилась такая: dd if=/media/rock64/KINGSTON/xenial-mate-rock64-0.4.0-63-arm64.img of=/dev/mmcblk0 bs=2048 status=progress) Ждём, пока скопируется весь образ, в моем случае это заняло около 25 минут. Даем команду sync, обесточиваем устройство, вынимаем обе флешки, подаем питание. Должна начаться загрузка с внутренней флешки. Дополнение от 23 июля 2017г.: После первого запуска (с SD флешки, либо с внутренней памяти) рекомендую выполнить команду resize_rootfs.sh с правами рута (получить права рута можно с помощью команды sudo su) и затем перезагрузиться. Эта команда расширит корневой раздел, чтобы флешка использовалась полностью. ~~~ Из собственного опыта хочу отметить следующие детали. Стоковая или кастомная прошивка нужна для того чтобы rkAndroidTool желательно версии 2.39 (один бог знает где вы его найдете) разрешил нам нажать кнопочку EraseFlash, делает он это только после выбора файла с валидной прошивкой. Для прошивки приставки нужен будет usb a — usb a кабель. Желательно короткий, т.к на 4pda пишут что с длинными могут быть проблемы. Сам прошивал на метровом всё нормально. Забэкапить прошивку как пишут на 4pda можно программой rkDumper. У меня этого не получилось, нажимаю reset на приставке (маленькая дырочка снизу приставки), чтото там определяется и вылетает с ошибкой. Чтобы загрузиться с флешки microsd, да нужно грохнуть(стереть) прошивку на внутренней флешке. Если убьете всё, есть загрузчик maskrom через который можно восстановиться. Я убивал и после само устройство какимто образом автоматически определялось в maskrom режиме. Можно прошивать образы с архитектурой armhf. Это архитектура с каким то дополнительным набором комманд, наша приставка держит. Можно зашить armbian linux http://armbian.hosthatch.com/archive/rock64/archive/ всё по аналогии c ayufan. На armbian и ayufan 0.5 и выше неработает ethernet, https://github.com/ayufan-rock64/linux-build/issues/39 причина в том что какието драйвера конфликтуют либо ведут себя не стабильно поэтому наш ethernet выключили из device-tree ядра. Вот этим скриптом https://github.com/ayufan-rock64/linux-package/blob/master/root/usr/local/sbin/enable_dtoverlay делаем вот так enable_dtoverlay eth1 ethernet@ff550000 okay и помещаем куданибудь в автозагрузку либо нужно самому отредактировать dts. enable_dtoverlay: #!/bin/bash if [[ $# -lt 3 ]]; then echo &quot;usage: $0 &amp;lt;name&amp;gt; &amp;lt;target-path&amp;gt; &amp;lt;okay|disabled&amp;gt; &amp;lt;additional dt configs...&amp;gt;&quot; exit 1 fi if [[ &quot;$(basename &quot;$1&quot;)&quot; != &quot;$1&quot; ]]; then echo &quot;$1: has to be file name&quot; exit 1 fi if [[ ! -d /sys/kernel/config/device-tree/overlays ]]; then echo &quot;Your kernel does not support CONFIG_OF_OVERLAY.&quot; exit 1 fi if ! which dtc &amp;amp;&amp;gt;/dev/null; then echo &quot;Please install dtc: sudo apt-get install device-tree-compiler&quot; exit 1 fi if [[ &quot;$3&quot; != &quot;okay&quot; ]] &amp;amp;&amp;amp; [[ &quot;$3&quot; != &quot;disabled&quot; ]]; then echo &quot;$3: only &#39;okay&#39; or &#39;disabled&#39; is valid&quot; exit 1 fi NAME=&quot;$1&quot; TARGET=&quot;$2&quot; STATUS=&quot;$3&quot; shift 3 set -eo pipefail cd /sys/kernel/config/device-tree/overlays rmdir &quot;$NAME&quot; 2&amp;gt;/dev/null || true mkdir -p &quot;$NAME&quot; args() { for i in &quot;$@&quot;; do echo &quot;$i;&quot; done } generate() { cat &amp;lt;&amp;lt;EOF /dts-v1/; / { fragment@0 { target-path = &quot;/$TARGET&quot;; __overlay__ { $(args status=\&quot;$STATUS\&quot; &quot;$@&quot;) }; }; }; EOF } echo &quot;Applying...&quot; generate &quot;$@&quot; generate &quot;$@&quot; | dtc -I dts -Odtb -o &quot;$NAME/dtbo&quot; if [[ &quot;$(cat &quot;$NAME/status&quot;)&quot; == &quot;applied&quot; ]]; then echo &quot;Applied!&quot; else cat &quot;$NAME/status&quot; rmdir &quot;$NAME&quot; fi По Xorg нашёл только так -&amp;gt; /etc/X11/xorg.conf.d/01-armbian-defaults.conf: Section &quot;Monitor&quot; Identifier &quot;Monitor0&quot; Option &quot;DPMS&quot; &quot;false&quot; EndSection Section &quot;ServerFlags&quot; Option &quot;BlankTime&quot; &quot;0&quot; Option &quot;StandbyTime&quot; &quot;0&quot; Option &quot;SuspendTime&quot; &quot;0&quot; Option &quot;OffTime&quot; &quot;0&quot; EndSection Section &quot;Device&quot; Identifier &quot;Default Device&quot; Driver &quot;modesetting&quot; Option &quot;AccelMethod&quot; &quot;glamor&quot; EndSection">
+  
+
+  <link rel="stylesheet" href="/assets/main.css">
+  <link rel="canonical" href="https://n0rt3l.github.io/2022-06-15/z28-armbian">
+
+  <meta property="og:title" content="Установка linux на Z28 tv box rock64.">
+  <meta property="og:site_name" content="/home/n0rt3l">
+  <meta property="og:url" content="https://n0rt3l.github.io/2022-06-15/z28-armbian">
+  <meta property="og:description" content="Хочу рассказать о своем увлекательном опыте установки linux на приставку z28 tv box ott, которая оснащена soc чипом Rock64 RK3328. Некоторую информацию, я подчерпнул на 4pda.ru: 4pda.to-device 4pda.to-ubuntu Цитирую 4pda: Нам понадобится: — Любая прошивка для Z28 (стоковая или кастомная) — Micro SD флешка на 8 гигов (и более) — Программа Etcher (https://etcher.io/) — USBA-USBA кабель — Программа AndroidTool из этого поста (не каждая версия корректно срабатывает, поэтому лучше брать 2.39 отсюда — я делал на ней) — Программа Driver Assistant из этого поста Процесс запуска с SD флеш: Ставим драйвера с помощью Driver Assistant. Качаем образ LINUX отсюда — https://github.com/ayu…4/linux-build/releases (я взял xenial-mate-rock64-0.4.0-63-arm64.img.xz — это образ Ubuntu с графическим рабочим столом и прочим полезным барахлом, конкретно на этом образе и ветке 0.4 работает WiFi и все остальное (на оригинальной Z28, на остальных возможно не будет WiFi и\или ethernet, надо проверять), версии ветки 0.5 умеют загружаться только с внутреннеей памяти, на флешку записывать их смысла нет, подробнее — по ссылке в конце статьи.) Распаковываем (нужно получить файл .img) и записываем его с помощью кардридера и программы Etcher на sd-флешку Если хотите сохранить текущую прошивку, то читайте пост про то, как сделать бекап (ссылка есть у меня в подписи) Теперь нам надо стереть память устройства для того, чтобы оно начало грузиться с SD флешки. Для этого запускаем AndroidTool, обесточиваем устройство, зажимаем кнопку сброса (сзади коробочки отверстие, в нем кнопка. это и есть кнопка сброса), не отпуская кнопки подключаем коробочку к компьютеру кабелем USBA-USBA через OTG разъем. Затем отпускаем кнопку сброса. В программе AndroidTool устройство должно определиться. Теперь переходим на вкладку «UpgradeFirmware», там жмем «Firmware», выбираем прошивку (подойдет любая для Z28), и после этого жмем «EraseFlash». Всё, теперь флешка внутри устройства чиста и грузиться устройство будет пытаться с SD флешки. Обесточиваем коробочку, вставляем подготовленную SD флешку, подключаем монитор, клавиатуру, мышь и подключаем питание. Смотрим на монитор — должна начаться загрузка.(rock64 — логин rock64 — пароль) Процесс установки на внутреннюю память: Понадобится еще одна флешка, но уже USB, для хранения образа системы перед записью на внутренний накопитель и USB разветвитель, чтобы подключить мышь, клавиатуру и USB флешку одновременно Выполняем предыдущий пункт для того, чтобы получить работающую систему с SD флешки. Загружаемся с SD флешки, включаем терминал, переходим в режим работы от суперпользователя (команда sudo su, затем вводим пароль rock64) Копируем образ системы (который ранее вы записывали на SD флешку) на USB флешку (img файл), вставляем эту USB флешку в нашу коробочку. С помощью команды ls /media/rock64/ убеждаемся, что флешка подмонтировалась Запускаем команду dd if= of=/dev/mmcblk0 bs=2048 status=progress (в моем случае команда получилась такая: dd if=/media/rock64/KINGSTON/xenial-mate-rock64-0.4.0-63-arm64.img of=/dev/mmcblk0 bs=2048 status=progress) Ждём, пока скопируется весь образ, в моем случае это заняло около 25 минут. Даем команду sync, обесточиваем устройство, вынимаем обе флешки, подаем питание. Должна начаться загрузка с внутренней флешки. Дополнение от 23 июля 2017г.: После первого запуска (с SD флешки, либо с внутренней памяти) рекомендую выполнить команду resize_rootfs.sh с правами рута (получить права рута можно с помощью команды sudo su) и затем перезагрузиться. Эта команда расширит корневой раздел, чтобы флешка использовалась полностью. ~~~ Из собственного опыта хочу отметить следующие детали. Стоковая или кастомная прошивка нужна для того чтобы rkAndroidTool желательно версии 2.39 (один бог знает где вы его найдете) разрешил нам нажать кнопочку EraseFlash, делает он это только после выбора файла с валидной прошивкой. Для прошивки приставки нужен будет usb a — usb a кабель. Желательно короткий, т.к на 4pda пишут что с длинными могут быть проблемы. Сам прошивал на метровом всё нормально. Забэкапить прошивку как пишут на 4pda можно программой rkDumper. У меня этого не получилось, нажимаю reset на приставке (маленькая дырочка снизу приставки), чтото там определяется и вылетает с ошибкой. Чтобы загрузиться с флешки microsd, да нужно грохнуть(стереть) прошивку на внутренней флешке. Если убьете всё, есть загрузчик maskrom через который можно восстановиться. Я убивал и после само устройство какимто образом автоматически определялось в maskrom режиме. Можно прошивать образы с архитектурой armhf. Это архитектура с каким то дополнительным набором комманд, наша приставка держит. Можно зашить armbian linux http://armbian.hosthatch.com/archive/rock64/archive/ всё по аналогии c ayufan. На armbian и ayufan 0.5 и выше неработает ethernet, https://github.com/ayufan-rock64/linux-build/issues/39 причина в том что какието драйвера конфликтуют либо ведут себя не стабильно поэтому наш ethernet выключили из device-tree ядра. Вот этим скриптом https://github.com/ayufan-rock64/linux-package/blob/master/root/usr/local/sbin/enable_dtoverlay делаем вот так enable_dtoverlay eth1 ethernet@ff550000 okay и помещаем куданибудь в автозагрузку либо нужно самому отредактировать dts. enable_dtoverlay: #!/bin/bash if [[ $# -lt 3 ]]; then echo &quot;usage: $0 &amp;lt;name&amp;gt; &amp;lt;target-path&amp;gt; &amp;lt;okay|disabled&amp;gt; &amp;lt;additional dt configs...&amp;gt;&quot; exit 1 fi if [[ &quot;$(basename &quot;$1&quot;)&quot; != &quot;$1&quot; ]]; then echo &quot;$1: has to be file name&quot; exit 1 fi if [[ ! -d /sys/kernel/config/device-tree/overlays ]]; then echo &quot;Your kernel does not support CONFIG_OF_OVERLAY.&quot; exit 1 fi if ! which dtc &amp;amp;&amp;gt;/dev/null; then echo &quot;Please install dtc: sudo apt-get install device-tree-compiler&quot; exit 1 fi if [[ &quot;$3&quot; != &quot;okay&quot; ]] &amp;amp;&amp;amp; [[ &quot;$3&quot; != &quot;disabled&quot; ]]; then echo &quot;$3: only &#39;okay&#39; or &#39;disabled&#39; is valid&quot; exit 1 fi NAME=&quot;$1&quot; TARGET=&quot;$2&quot; STATUS=&quot;$3&quot; shift 3 set -eo pipefail cd /sys/kernel/config/device-tree/overlays rmdir &quot;$NAME&quot; 2&amp;gt;/dev/null || true mkdir -p &quot;$NAME&quot; args() { for i in &quot;$@&quot;; do echo &quot;$i;&quot; done } generate() { cat &amp;lt;&amp;lt;EOF /dts-v1/; / { fragment@0 { target-path = &quot;/$TARGET&quot;; __overlay__ { $(args status=\&quot;$STATUS\&quot; &quot;$@&quot;) }; }; }; EOF } echo &quot;Applying...&quot; generate &quot;$@&quot; generate &quot;$@&quot; | dtc -I dts -Odtb -o &quot;$NAME/dtbo&quot; if [[ &quot;$(cat &quot;$NAME/status&quot;)&quot; == &quot;applied&quot; ]]; then echo &quot;Applied!&quot; else cat &quot;$NAME/status&quot; rmdir &quot;$NAME&quot; fi По Xorg нашёл только так -&amp;gt; /etc/X11/xorg.conf.d/01-armbian-defaults.conf: Section &quot;Monitor&quot; Identifier &quot;Monitor0&quot; Option &quot;DPMS&quot; &quot;false&quot; EndSection Section &quot;ServerFlags&quot; Option &quot;BlankTime&quot; &quot;0&quot; Option &quot;StandbyTime&quot; &quot;0&quot; Option &quot;SuspendTime&quot; &quot;0&quot; Option &quot;OffTime&quot; &quot;0&quot; EndSection Section &quot;Device&quot; Identifier &quot;Default Device&quot; Driver &quot;modesetting&quot; Option &quot;AccelMethod&quot; &quot;glamor&quot; EndSection">
+
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet">
+
+  <!-- Yandex.Metrika counter -->
+	<script type="text/javascript" >
+		   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+			      m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+   (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+
+   ym(84510148, "init", {
+	           clickmap:true,
+	           trackLinks:true,
+	           accurateTrackBounce:true
+	      });
+	</script>
+	<noscript><div><img src="https://mc.yandex.ru/watch/84510148" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+	<!-- /Yandex.Metrika counter --><!-- Yandex.Metrika counter -->
+	<script type="text/javascript" >
+		   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+			      m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+   (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+
+   ym(84510148, "init", {
+	           clickmap:true,
+	           trackLinks:true,
+	           accurateTrackBounce:true
+	      });
+	</script>
+	<noscript><div><img src="https://mc.yandex.ru/watch/84510148" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+	<!-- /Yandex.Metrika counter -->
+
+</head>
+
+
+  <body>
+
+    <header class="site-header">
+
+  <div class="wrapper">
+
+    <a class="site-title" href="/">/home/n0rt3l</a>
+
+    <nav class="site-nav">
+        <a class="page-link" href="https://mymywork.github.io">About</a>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title" itemprop="name headline">Установка linux на Z28 tv box rock64.</h1>
+    <p class="post-meta"><time datetime="2022-06-15T09:16:22+00:00" itemprop="datePublished">Jun 15, 2022</time>
+
+ •
+  
+    
+    
+      
+    
+      
+        <a href="/tags/z29/">z29</a>,
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+  
+    
+    
+      
+    
+      
+    
+      
+        <a href="/tags/rock64/">rock64</a>,
+      
+    
+      
+    
+      
+    
+      
+    
+  
+    
+    
+      
+    
+      
+    
+      
+    
+      
+        <a href="/tags/tv/">tv</a>,
+      
+    
+      
+    
+      
+    
+  
+    
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+        <a href="/tags/box/">box</a>
+      
+    
+      
+    
+  
+
+</p>
+  </header>
+
+  <div class="post-content" itemprop="articleBody">
+    <p>Хочу рассказать о своем увлекательном опыте установки linux на приставку z28 tv box ott, которая оснащена soc чипом Rock64 RK3328.</p>
+
+<p>Некоторую информацию, я подчерпнул на 4pda.ru:<br />
+<a href="https://4pda.to/forum/index.php?showtopic=819860">4pda.to-device</a><br />
+<a href="https://4pda.to/forum/index.php?showtopic=819860&amp;st=300#entry63238627">4pda.to-ubuntu</a></p>
+
+<p>Цитирую 4pda:</p>
+<blockquote>
+  <p>Нам понадобится:
+— Любая прошивка для Z28 (стоковая или кастомная)
+— Micro SD флешка на 8 гигов (и более)
+— Программа Etcher (https://etcher.io/)
+— USBA-USBA кабель
+— Программа AndroidTool из этого поста (не каждая версия корректно срабатывает, поэтому лучше брать 2.39 отсюда — я делал на ней)
+— Программа Driver Assistant из этого поста</p>
+</blockquote>
+
+<blockquote>
+  <p>Процесс запуска с SD флеш:</p>
+  <ol>
+    <li>Ставим драйвера с помощью Driver Assistant.</li>
+    <li>Качаем образ LINUX отсюда — https://github.com/ayu…4/linux-build/releases (я взял xenial-mate-rock64-0.4.0-63-arm64.img.xz — это образ Ubuntu с графическим рабочим столом и прочим полезным барахлом, конкретно на этом образе и ветке 0.4 работает WiFi и все остальное (на оригинальной Z28, на остальных возможно не будет WiFi и\или ethernet, надо проверять), версии ветки 0.5 умеют загружаться только с внутреннеей памяти, на флешку записывать их смысла нет, подробнее — по ссылке в конце статьи.)</li>
+    <li>Распаковываем (нужно получить файл .img) и записываем его с помощью кардридера и программы Etcher на sd-флешку</li>
+    <li>Если хотите сохранить текущую прошивку, то читайте пост про то, как сделать бекап (ссылка есть у меня в подписи)</li>
+    <li>Теперь нам надо стереть память устройства для того, чтобы оно начало грузиться с SD флешки. Для этого запускаем AndroidTool, обесточиваем устройство, зажимаем кнопку сброса (сзади коробочки отверстие, в нем кнопка. это и есть кнопка сброса), не отпуская кнопки подключаем коробочку к компьютеру кабелем USBA-USBA через OTG разъем. Затем отпускаем кнопку сброса. В программе AndroidTool устройство должно определиться. Теперь переходим на вкладку «UpgradeFirmware», там жмем «Firmware», выбираем прошивку (подойдет любая для Z28), и после этого жмем «EraseFlash». Всё, теперь флешка внутри устройства чиста и грузиться устройство будет пытаться с SD флешки.</li>
+    <li>Обесточиваем коробочку, вставляем подготовленную SD флешку, подключаем монитор, клавиатуру, мышь и подключаем питание.</li>
+    <li>Смотрим на монитор — должна начаться загрузка.(rock64 — логин rock64 — пароль)</li>
+  </ol>
+</blockquote>
+
+<blockquote>
+  <p>Процесс установки на внутреннюю память:</p>
+  <ol>
+    <li>Понадобится еще одна флешка, но уже USB, для хранения образа системы перед записью на внутренний накопитель и USB разветвитель, чтобы подключить мышь, клавиатуру и USB флешку одновременно</li>
+    <li>Выполняем предыдущий пункт для того, чтобы получить работающую систему с SD флешки.</li>
+    <li>Загружаемся с SD флешки, включаем терминал, переходим в режим работы от суперпользователя (команда sudo su, затем вводим пароль rock64)</li>
+    <li>Копируем образ системы (который ранее вы записывали на SD флешку) на USB флешку (img файл), вставляем эту USB флешку в нашу коробочку.</li>
+    <li>С помощью команды ls /media/rock64/ убеждаемся, что флешка подмонтировалась</li>
+    <li>Запускаем команду dd if=<путь к="" файлу="" образа="" с="" флешки=""> of=/dev/mmcblk0 bs=2048 status=progress (в моем случае команда получилась такая: dd if=/media/rock64/KINGSTON/xenial-mate-rock64-0.4.0-63-arm64.img of=/dev/mmcblk0 bs=2048 status=progress)</путь></li>
+    <li>Ждём, пока скопируется весь образ, в моем случае это заняло около 25 минут.</li>
+    <li>Даем команду sync, обесточиваем устройство, вынимаем обе флешки, подаем питание. Должна начаться загрузка с внутренней флешки.</li>
+  </ol>
+</blockquote>
+
+<blockquote>
+  <p>Дополнение от 23 июля 2017г.:</p>
+</blockquote>
+
+<blockquote>
+  <p>После первого запуска (с SD флешки, либо с внутренней памяти) рекомендую выполнить команду resize_rootfs.sh с правами рута (получить права рута можно с помощью команды sudo su) и затем перезагрузиться. Эта команда расширит корневой раздел, чтобы флешка использовалась полностью.
+~~~</p>
+</blockquote>
+
+<p>Из собственного опыта хочу отметить следующие детали.</p>
+
+<ol>
+  <li>Стоковая или кастомная прошивка нужна для того чтобы rkAndroidTool желательно версии 2.39 (один бог знает где вы его найдете) разрешил нам нажать кнопочку EraseFlash, делает он это только после выбора файла с валидной прошивкой.</li>
+  <li>Для прошивки приставки нужен будет usb a — usb a кабель. Желательно короткий, т.к на 4pda пишут что с длинными могут быть проблемы. Сам прошивал на метровом всё нормально.</li>
+  <li>Забэкапить прошивку как пишут на 4pda можно программой rkDumper. У меня этого не получилось, нажимаю reset на приставке (маленькая дырочка снизу приставки), чтото там определяется и вылетает с ошибкой.</li>
+  <li>Чтобы загрузиться с флешки microsd, да нужно грохнуть(стереть) прошивку на внутренней флешке.</li>
+  <li>Если убьете всё, есть загрузчик maskrom через который можно восстановиться. Я убивал и после само устройство какимто образом автоматически определялось в maskrom режиме.</li>
+  <li>Можно прошивать образы с архитектурой armhf. Это архитектура с каким то дополнительным набором комманд, наша приставка держит.</li>
+  <li>Можно зашить armbian linux http://armbian.hosthatch.com/archive/rock64/archive/ всё по аналогии c ayufan.</li>
+  <li>На armbian и ayufan 0.5 и выше неработает ethernet, https://github.com/ayufan-rock64/linux-build/issues/39 причина в том что какието драйвера конфликтуют либо ведут себя не стабильно поэтому наш ethernet выключили из device-tree ядра. Вот этим скриптом https://github.com/ayufan-rock64/linux-package/blob/master/root/usr/local/sbin/enable_dtoverlay делаем вот так enable_dtoverlay eth1 ethernet@ff550000 okay и помещаем куданибудь в автозагрузку либо нужно самому отредактировать dts.</li>
+</ol>
+
+<p>enable_dtoverlay:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>#!/bin/bash
+
+if [[ $# -lt 3 ]]; then
+  echo "usage: $0 &lt;name&gt; &lt;target-path&gt; &lt;okay|disabled&gt; &lt;additional dt configs...&gt;"
+  exit 1
+fi
+
+if [[ "$(basename "$1")" != "$1" ]]; then
+  echo "$1: has to be file name"
+  exit 1
+fi
+
+if [[ ! -d /sys/kernel/config/device-tree/overlays ]]; then
+  echo "Your kernel does not support CONFIG_OF_OVERLAY."
+  exit 1
+fi
+
+if ! which dtc &amp;&gt;/dev/null; then
+  echo "Please install dtc: sudo apt-get install device-tree-compiler"
+  exit 1
+fi
+
+if [[ "$3" != "okay" ]] &amp;&amp; [[ "$3" != "disabled" ]]; then
+  echo "$3: only 'okay' or 'disabled' is valid"
+  exit 1
+fi
+
+NAME="$1"
+TARGET="$2"
+STATUS="$3"
+shift 3
+
+set -eo pipefail
+cd /sys/kernel/config/device-tree/overlays
+
+rmdir "$NAME" 2&gt;/dev/null || true
+mkdir -p "$NAME"
+
+args() {
+  for i in "$@"; do
+    echo "$i;"
+  done
+}
+
+generate() {
+cat &lt;&lt;EOF
+/dts-v1/;
+/ {
+    fragment@0 {
+        target-path = "/$TARGET";
+        __overlay__ {
+            $(args status=\"$STATUS\" "$@")
+        };
+    };
+};
+EOF
+}
+
+echo "Applying..."
+generate "$@"
+
+generate "$@" | dtc -I dts -Odtb -o "$NAME/dtbo"
+
+if [[ "$(cat "$NAME/status")" == "applied" ]]; then
+  echo "Applied!"
+else
+  cat "$NAME/status"
+  rmdir "$NAME"
+fi
+</code></pre></div></div>
+
+<p>По Xorg нашёл только так -&gt; /etc/X11/xorg.conf.d/01-armbian-defaults.conf:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Section "Monitor"
+        Identifier              "Monitor0"
+        Option                  "DPMS" "false"
+EndSection
+Section "ServerFlags"
+        Option                  "BlankTime" "0"
+        Option                  "StandbyTime" "0"
+        Option                  "SuspendTime" "0"
+        Option                  "OffTime" "0"
+EndSection
+Section "Device"
+    Identifier  "Default Device"
+    Driver      "modesetting"
+    Option      "AccelMethod"    "glamor"
+EndSection
+</code></pre></div></div>
+
+  </div>
+
+</article>
+
+      </div>
+    </main>
+
+    <footer class="site-footer">
+
+  <div class="wrapper">
+
+    <p>
+      &copy; nortel - Powered by <a href="https://jekyllrb.com">Jekyll</a> &amp; Modded <a href="https://github.com/yous/whiteglass">whiteglass</a>
+
+    </p>
+
+  </div>
+
+</footer>
+
+
+  </body>
+
+</html>
