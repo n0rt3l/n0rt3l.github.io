@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+  <head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="yandex-verification" content="e062075972e46c0b" />
+  
+  
+  
+  
+  <title>DIR-300 Rev B3 build openwrt and fix wifi.</title>
+  <meta name="description" content="Сборка openwrt для dir-300 rev.b3 rt3050f (rt3350). Роутер DIR-300 ревизия B3 имеет подкрышкой внутри процессор RT3050F так написано на маркировке чипа, но пишут/определяется он как 3350 который имеет некоторые различия с 3050 но в целом совместим с ним. Для прошивок openwrt нету конфигурации dir-300 для ревизии b3, поэтому можно прошить или собрать ревизию b1, либо конфигурацию/прошивку от полного клона dir-600 такой же ревизии b1. При работе прошивки openwrt от b1 возникает проблема, не работает модуль wifi. В dmesg ядра можно увидеть вот такое сообщение: Если посмотреть opensource исходники старых прошивок от dlink с ftp.dlink.com то можно найти там драйвер “2860v2” с которым модуль wifi работает нормально: В нём можно увидеть константу RF_OFFSET 0x40000 которая как бы намекает где храниться eeprom для радио модуля(wifi). Если же мы посмотрим dts конфигурацию ядра openwrt для dir-300 b1 тут https://github.com/openwrt/openwrt/blob/openwrt-19.07/target/linux/ramips/dts/DIR-300-B1.dts То увидем что &amp;amp;wmac ralink,mtd-eeprom указывает на devdata+0x4000, а devdata располагается по адресу 0x30000 что не равняется смещению 0x40000 как в нашей константе RF_OFFSET выше из старой прошивке. cfi@1f000000 { ...skip... partitions { ...skip... devdata: partition@30000 { label = &quot;devdata&quot;; reg = &amp;lt;0x30000 0x10000&amp;gt;; read-only; }; factory: partition@40000 { label = &quot;devconf&quot;; reg = &amp;lt;0x40000 0x10000&amp;gt;; read-only; }; ...skip... } .... &amp;amp;wmac { ralink,mtd-eeprom = &amp;lt;&amp;amp;devdata 0x4000&amp;gt;; }; Следовательно делаем вывод что нужно изменить адрес eeprom для wmac на 0x40000 просто исправив его так. &amp;amp;wmac { ralink,mtd-eeprom = &amp;lt;&amp;amp;factory 0x0&amp;gt;; }; Секция factory у нас начинается с адреса 0x40000 что как раз соответствует нашему смещению. Далее при сборке прошивке make menuconfig нужно выбрать измененный профиль и собрать прошивку командой make. После сборки прошивки, радио модуль определяется и работает. Но остается ещё одна проблема на данной модели роутера слишком мало флеш памяти 4мб, поэтому приходться убирать из прошивки практически всё.">
+  
+
+  <link rel="stylesheet" href="/assets/main.css">
+  <link rel="canonical" href="https://n0rt3l.github.io/2025-05-21/dir300b3-openwrt-wifi-fix">
+
+  <meta property="og:title" content="DIR-300 Rev B3 build openwrt and fix wifi.">
+  <meta property="og:site_name" content="/home/n0rt3l">
+  <meta property="og:url" content="https://n0rt3l.github.io/2025-05-21/dir300b3-openwrt-wifi-fix">
+  <meta property="og:description" content="Сборка openwrt для dir-300 rev.b3 rt3050f (rt3350). Роутер DIR-300 ревизия B3 имеет подкрышкой внутри процессор RT3050F так написано на маркировке чипа, но пишут/определяется он как 3350 который имеет некоторые различия с 3050 но в целом совместим с ним. Для прошивок openwrt нету конфигурации dir-300 для ревизии b3, поэтому можно прошить или собрать ревизию b1, либо конфигурацию/прошивку от полного клона dir-600 такой же ревизии b1. При работе прошивки openwrt от b1 возникает проблема, не работает модуль wifi. В dmesg ядра можно увидеть вот такое сообщение: Если посмотреть opensource исходники старых прошивок от dlink с ftp.dlink.com то можно найти там драйвер “2860v2” с которым модуль wifi работает нормально: В нём можно увидеть константу RF_OFFSET 0x40000 которая как бы намекает где храниться eeprom для радио модуля(wifi). Если же мы посмотрим dts конфигурацию ядра openwrt для dir-300 b1 тут https://github.com/openwrt/openwrt/blob/openwrt-19.07/target/linux/ramips/dts/DIR-300-B1.dts То увидем что &amp;amp;wmac ralink,mtd-eeprom указывает на devdata+0x4000, а devdata располагается по адресу 0x30000 что не равняется смещению 0x40000 как в нашей константе RF_OFFSET выше из старой прошивке. cfi@1f000000 { ...skip... partitions { ...skip... devdata: partition@30000 { label = &quot;devdata&quot;; reg = &amp;lt;0x30000 0x10000&amp;gt;; read-only; }; factory: partition@40000 { label = &quot;devconf&quot;; reg = &amp;lt;0x40000 0x10000&amp;gt;; read-only; }; ...skip... } .... &amp;amp;wmac { ralink,mtd-eeprom = &amp;lt;&amp;amp;devdata 0x4000&amp;gt;; }; Следовательно делаем вывод что нужно изменить адрес eeprom для wmac на 0x40000 просто исправив его так. &amp;amp;wmac { ralink,mtd-eeprom = &amp;lt;&amp;amp;factory 0x0&amp;gt;; }; Секция factory у нас начинается с адреса 0x40000 что как раз соответствует нашему смещению. Далее при сборке прошивке make menuconfig нужно выбрать измененный профиль и собрать прошивку командой make. После сборки прошивки, радио модуль определяется и работает. Но остается ещё одна проблема на данной модели роутера слишком мало флеш памяти 4мб, поэтому приходться убирать из прошивки практически всё.">
+
+  <link rel="dns-prefetch" href="https://fonts.gstatic.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:ital,wght@0,400;0,700;1,400&amp;display=swap" rel="stylesheet">
+
+  <!-- Yandex.Metrika counter -->
+	<script type="text/javascript" >
+		   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+			      m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+   (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+
+   ym(84510148, "init", {
+	           clickmap:true,
+	           trackLinks:true,
+	           accurateTrackBounce:true
+	      });
+	</script>
+	<noscript><div><img src="https://mc.yandex.ru/watch/84510148" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+	<!-- /Yandex.Metrika counter --><!-- Yandex.Metrika counter -->
+	<script type="text/javascript" >
+		   (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+			      m[i].l=1*new Date();k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})
+   (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
+
+   ym(84510148, "init", {
+	           clickmap:true,
+	           trackLinks:true,
+	           accurateTrackBounce:true
+	      });
+	</script>
+	<noscript><div><img src="https://mc.yandex.ru/watch/84510148" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+	<!-- /Yandex.Metrika counter -->
+
+</head>
+
+
+  <body>
+
+    <header class="site-header">
+
+  <div class="wrapper">
+
+    <a class="site-title" href="/">/home/n0rt3l</a>
+
+    <nav class="site-nav">
+        <a class="page-link" href="https://mymywork.github.io">About</a>
+    </nav>
+
+  </div>
+
+</header>
+
+
+    <main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <article class="post" itemscope itemtype="http://schema.org/BlogPosting">
+
+  <header class="post-header">
+    <h1 class="post-title" itemprop="name headline">DIR-300 Rev B3 build openwrt and fix wifi.</h1>
+    <p class="post-meta"><time datetime="2025-05-21T07:37:00+00:00" itemprop="datePublished">May 21, 2025</time>
+
+ •
+  
+    
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+    
+      
+        <a href="/tags/dir300b3-openwrt/">dir300b3 openwrt</a>
+      
+    
+  
+
+</p>
+  </header>
+
+  <div class="post-content" itemprop="articleBody">
+    <h4>Сборка openwrt для dir-300 rev.b3 rt3050f (rt3350).</h4>
+
+<p>Роутер DIR-300 ревизия B3 имеет подкрышкой внутри процессор RT3050F так написано на маркировке чипа, но пишут/определяется он как 3350 который имеет некоторые различия с 3050 но в целом совместим с ним. Для прошивок openwrt нету конфигурации dir-300 для ревизии b3, поэтому можно прошить или собрать ревизию b1, либо конфигурацию/прошивку от полного клона dir-600 такой же ревизии b1.</p>
+
+<p>При работе прошивки openwrt от b1 возникает проблема, не работает модуль wifi.
+В dmesg ядра можно увидеть вот такое сообщение:
+<img src="../assets/2025_05_21_dir300b3/pic0.jpg" alt="image" /></p>
+
+<p>Если посмотреть opensource исходники старых прошивок от dlink с ftp.dlink.com
+то можно найти там драйвер “2860v2” с которым модуль wifi работает нормально:</p>
+
+<p><img src="../assets/2025_05_21_dir300b3/pic1.jpg" alt="image" /></p>
+
+<p>В нём можно увидеть константу RF_OFFSET 0x40000 которая как бы намекает где храниться eeprom для радио модуля(wifi).</p>
+
+<p>Если же мы посмотрим dts конфигурацию ядра openwrt для dir-300 b1 тут
+https://github.com/openwrt/openwrt/blob/openwrt-19.07/target/linux/ramips/dts/DIR-300-B1.dts</p>
+
+<p>То увидем что &amp;wmac ralink,mtd-eeprom указывает на devdata+0x4000, а
+devdata располагается по адресу 0x30000 что не равняется смещению 0x40000 как в нашей константе RF_OFFSET выше из старой прошивке.</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>cfi@1f000000 {
+
+  ...skip...
+
+		partitions {
+
+      ...skip...
+
+      devdata: partition@30000 {
+				label = "devdata";
+				reg = &lt;0x30000 0x10000&gt;;
+				read-only;
+			};
+
+			factory: partition@40000 {
+				label = "devconf";
+				reg = &lt;0x40000 0x10000&gt;;
+				read-only;
+			};
+
+      ...skip...
+
+    }
+
+....
+
+&amp;wmac {
+	ralink,mtd-eeprom = &lt;&amp;devdata 0x4000&gt;;
+};
+</code></pre></div></div>
+<p>Следовательно делаем вывод что нужно изменить адрес eeprom для wmac на 0x40000
+просто исправив его так.</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>&amp;wmac {
+	ralink,mtd-eeprom = &lt;&amp;factory 0x0&gt;;
+};
+
+</code></pre></div></div>
+<p>Секция factory у нас начинается с адреса 0x40000 что как раз соответствует нашему смещению.</p>
+
+<p>Далее при сборке прошивке make menuconfig нужно выбрать измененный профиль и собрать прошивку командой make.</p>
+
+<p>После сборки прошивки, радио модуль определяется и работает.</p>
+
+<p><img src="../assets/2025_05_21_dir300b3/pic2.jpg" alt="image" /></p>
+
+<p>Но остается ещё одна проблема на данной модели роутера слишком мало флеш памяти
+4мб, поэтому приходться убирать из прошивки практически всё.</p>
+
+  </div>
+
+</article>
+
+      </div>
+    </main>
+
+    <footer class="site-footer">
+
+  <div class="wrapper">
+
+    <p>
+      &copy; nortel - Powered by <a href="https://jekyllrb.com">Jekyll</a> &amp; Modded <a href="https://github.com/yous/whiteglass">whiteglass</a>
+
+    </p>
+
+  </div>
+
+</footer>
+
+
+  </body>
+
+</html>
